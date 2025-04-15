@@ -114,6 +114,7 @@ pub struct Config {
     /// When the retry pool exceeds this max size, new transactions are dropped after their first broadcast attempt
     pub retry_pool_max_size: usize,
     pub tpu_peers: Option<Vec<SocketAddr>>,
+    pub validator_whitelist: Arc<RwLock<Vec<String>>>,
 }
 
 impl Default for Config {
@@ -127,6 +128,7 @@ impl Default for Config {
             batch_send_rate_ms: DEFAULT_BATCH_SEND_RATE_MS,
             retry_pool_max_size: MAX_TRANSACTION_RETRY_POOL_SIZE,
             tpu_peers: None,
+            validator_whitelist: Arc::new(RwLock::new(Vec::default())),
         }
     }
 }
@@ -782,9 +784,13 @@ impl SendTransactionService {
         config: &'a Config,
         protocol: Protocol,
     ) -> Vec<&'a SocketAddr> {
-        let addresses = leader_info
-            .as_ref()
-            .map(|leader_info| leader_info.get_leader_tpus(config.leader_forward_count, protocol));
+        let addresses = leader_info.as_ref().map(|leader_info| {
+            leader_info.get_leader_tpus(
+                config.leader_forward_count,
+                protocol,
+                config.validator_whitelist.clone(),
+            )
+        });
         addresses
             .map(|address_list| {
                 if address_list.is_empty() {
@@ -805,7 +811,11 @@ impl SendTransactionService {
         leader_info
             .as_ref()
             .map(|leader_info| {
-                leader_info.get_leader_tpus_with_slots(config.leader_forward_count, protocol)
+                leader_info.get_leader_tpus_with_slots(
+                    config.leader_forward_count,
+                    protocol,
+                    config.validator_whitelist.clone(),
+                )
             })
             .filter(|addresses| !addresses.is_empty())
             .unwrap_or_else(|| vec![(tpu_address, 0)])

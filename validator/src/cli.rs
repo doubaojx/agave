@@ -937,6 +937,15 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 ),
         )
         .arg(
+            Arg::with_name("validator_whitelist")
+                .long("validator-whitelist")
+                .value_name("PATH")
+                .takes_value(true)
+                .help(
+                    "Provide a path to a json file containing a list of trusted validator",
+                ),
+        )
+        .arg(
             Arg::with_name("bind_address")
                 .long("bind-address")
                 .value_name("HOST")
@@ -1928,6 +1937,23 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 )
                 .after_help(
                     "Note: the new staked nodes overrides only applies to the currently running \
+                     validator instance",
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("validator-whitelist")
+                .about("Filter the whitelist of validator nodes that transactions are sent to")
+                .arg(
+                    Arg::with_name("path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .required(true)
+                        .help(
+                            "Provide a path to a json file containing a list of trusted validator",
+                        ),
+                )
+                .after_help(
+                    "Note: the new validator whitelist only applies to the currently running \
                      validator instance",
                 ),
         )

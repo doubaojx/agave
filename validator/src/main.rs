@@ -4,7 +4,9 @@ use jemallocator::Jemalloc;
 use {
     agave_validator::{
         admin_rpc_service,
-        admin_rpc_service::{load_staked_nodes_overrides, StakedNodesOverrides},
+        admin_rpc_service::{
+            load_staked_nodes_overrides, load_validator_whitelist, StakedNodesOverrides,
+        },
         bootstrap,
         cli::{self, app, warn_for_deprecated_arguments, DefaultArgs},
         dashboard::Dashboard,
@@ -715,6 +717,28 @@ pub fn main() {
                 });
             return;
         }
+        ("validator-whitelist", Some(subcommand_matches)) => {
+            if !subcommand_matches.is_present("path") {
+                println!("validator-whitelist requires argument of location of the configuration");
+                exit(1);
+            }
+
+            let path = subcommand_matches.value_of("path").unwrap();
+
+            let admin_client = admin_rpc_service::connect(&ledger_path);
+            admin_rpc_service::runtime()
+                .block_on(async move {
+                    admin_client
+                        .await?
+                        .set_validator_whitelist(path.to_string())
+                        .await
+                })
+                .unwrap_or_else(|err| {
+                    println!("setValidatorWhitelist request failed: {err}");
+                    exit(1);
+                });
+            return;
+        }
         ("set-identity", Some(subcommand_matches)) => {
             let require_tower = subcommand_matches.is_present("require_tower");
 
@@ -985,6 +1009,23 @@ pub fn main() {
         }
         .staked_map_id,
     ));
+
+    let validator_whitelist_path = matches.value_of("validator_whitelist").map(str::to_string);
+    let validator_whitelist = Arc::new(RwLock::new(match &validator_whitelist_path {
+        None => Vec::default(),
+        Some(p) => load_validator_whitelist(p).unwrap_or_else(|err| {
+            error!("Failed to load validator-whitelist from {}: {}", p, err);
+            clap::Error::with_description(
+                "Failed to load configuration of validator-whitelist argument",
+                clap::ErrorKind::InvalidValue,
+            )
+            .exit()
+        }),
+    }));
+    info!(
+        "Validator whitelist config: {:?}",
+        validator_whitelist.read().unwrap()
+    );
 
     let init_complete_file = matches.value_of("init_complete_file");
 
@@ -1518,6 +1559,7 @@ pub fn main() {
                 usize
             ),
             tpu_peers: rpc_send_transaction_tpu_peers,
+            validator_whitelist: validator_whitelist.clone(),
         },
         no_poh_speed_test: matches.is_present("no_poh_speed_test"),
         no_os_memory_stats_reporting: matches.is_present("no_os_memory_stats_reporting"),
@@ -1907,6 +1949,7 @@ pub fn main() {
             post_init: admin_service_post_init.clone(),
             tower_storage: validator_config.tower_storage.clone(),
             staked_nodes_overrides,
+            validator_whitelist,
             rpc_to_plugin_manager_sender,
         },
     );

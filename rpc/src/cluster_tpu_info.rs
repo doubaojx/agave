@@ -50,11 +50,24 @@ impl TpuInfo for ClusterTpuInfo {
             .collect();
     }
 
-    fn get_leader_tpus(&self, max_count: u64, protocol: Protocol) -> Vec<&SocketAddr> {
+    fn get_leader_tpus(
+        &self,
+        max_count: u64,
+        protocol: Protocol,
+        whitelist: Arc<RwLock<Vec<String>>>,
+    ) -> Vec<&SocketAddr> {
         let recorder = self.poh_recorder.read().unwrap();
-        let leaders: Vec<_> = (0..max_count)
-            .filter_map(|i| recorder.leader_after_n_slots(i * NUM_CONSECUTIVE_LEADER_SLOTS))
-            .collect();
+        let whitelist = whitelist.read().unwrap();
+        let leaders: Vec<_> = if whitelist.is_empty() {
+            (0..max_count)
+                .filter_map(|i| recorder.leader_after_n_slots(i * NUM_CONSECUTIVE_LEADER_SLOTS))
+                .collect()
+        } else {
+            (0..max_count)
+                .filter_map(|i| recorder.leader_after_n_slots(i * NUM_CONSECUTIVE_LEADER_SLOTS))
+                .filter(|leader_id| whitelist.contains(&leader_id.to_string()))
+                .collect()
+        };
         drop(recorder);
         let mut unique_leaders = vec![];
         for leader in leaders.iter() {
@@ -74,18 +87,45 @@ impl TpuInfo for ClusterTpuInfo {
         &self,
         max_count: u64,
         protocol: Protocol,
+        whitelist: Arc<RwLock<Vec<String>>>,
     ) -> Vec<(&SocketAddr, Slot)> {
         let recorder = self.poh_recorder.read().unwrap();
-        let leaders: Vec<_> = (0..max_count)
-            .rev()
-            .filter_map(|future_slot| {
-                NUM_CONSECUTIVE_LEADER_SLOTS
-                    .checked_mul(future_slot)
-                    .and_then(|slots_in_the_future| {
-                        recorder.leader_and_slot_after_n_slots(slots_in_the_future)
-                    })
-            })
-            .collect();
+        let whitelist = whitelist.read().unwrap();
+        let leaders: Vec<_> = if whitelist.is_empty() {
+            (0..max_count)
+                .rev()
+                .filter_map(|future_slot| {
+                    NUM_CONSECUTIVE_LEADER_SLOTS
+                        .checked_mul(future_slot)
+                        .and_then(|slots_in_the_future| {
+                            recorder.leader_and_slot_after_n_slots(slots_in_the_future)
+                        })
+                })
+                .collect()
+        } else {
+            (0..max_count)
+                .rev()
+                .filter_map(|future_slot| {
+                    NUM_CONSECUTIVE_LEADER_SLOTS
+                        .checked_mul(future_slot)
+                        .and_then(|slots_in_the_future| {
+                            recorder.leader_and_slot_after_n_slots(slots_in_the_future)
+                        })
+                })
+                .filter(|leader_id| {
+                    // filter validator whitelist
+                    if !whitelist.contains(&leader_id.0.to_string()) {
+                        info!(
+                            "This validator is not in the whitelist: {}",
+                            leader_id.0.to_string()
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect()
+        };
         drop(recorder);
         let addrs_to_slots = leaders
             .into_iter()
@@ -274,12 +314,13 @@ mod test {
         let slot = bank.slot();
         let first_leader =
             solana_ledger::leader_schedule_utils::slot_leader_at(slot, &bank).unwrap();
+        let whitelist = Arc::new(RwLock::new(Vec::new()));
         assert_eq!(
-            leader_info.get_leader_tpus(1, Protocol::UDP),
+            leader_info.get_leader_tpus(1, Protocol::UDP, whitelist.clone()),
             vec![&recent_peers.get(&first_leader).unwrap().0]
         );
         assert_eq!(
-            leader_info.get_leader_tpus_with_slots(1, Protocol::UDP),
+            leader_info.get_leader_tpus_with_slots(1, Protocol::UDP, whitelist.clone()),
             vec![(&recent_peers.get(&first_leader).unwrap().0, 0)]
         );
 
@@ -294,11 +335,11 @@ mod test {
         ];
         expected_leader_sockets.dedup();
         assert_eq!(
-            leader_info.get_leader_tpus(2, Protocol::UDP),
+            leader_info.get_leader_tpus(2, Protocol::UDP, whitelist.clone()),
             expected_leader_sockets
         );
         assert_eq!(
-            leader_info.get_leader_tpus_with_slots(2, Protocol::UDP),
+            leader_info.get_leader_tpus_with_slots(2, Protocol::UDP, whitelist.clone()),
             expected_leader_sockets
                 .into_iter()
                 .zip([0, 4])
@@ -317,13 +358,13 @@ mod test {
         ];
         expected_leader_sockets.dedup();
         assert_eq!(
-            leader_info.get_leader_tpus(3, Protocol::UDP),
+            leader_info.get_leader_tpus(3, Protocol::UDP, whitelist.clone()),
             expected_leader_sockets
         );
         // Only 2 leader tpus are returned always... so [0, 4, 8] isn't right here.
         // This assumption is safe. After all, leader schedule generation must be deterministic.
         assert_eq!(
-            leader_info.get_leader_tpus_with_slots(3, Protocol::UDP),
+            leader_info.get_leader_tpus_with_slots(3, Protocol::UDP, whitelist.clone()),
             expected_leader_sockets
                 .into_iter()
                 .zip([0, 4])
@@ -331,10 +372,15 @@ mod test {
         );
 
         for x in 4..8 {
-            assert!(leader_info.get_leader_tpus(x, Protocol::UDP).len() <= recent_peers.len());
             assert!(
                 leader_info
-                    .get_leader_tpus_with_slots(x, Protocol::UDP)
+                    .get_leader_tpus(x, Protocol::UDP, whitelist.clone())
+                    .len()
+                    <= recent_peers.len()
+            );
+            assert!(
+                leader_info
+                    .get_leader_tpus_with_slots(x, Protocol::UDP, whitelist.clone())
                     .len()
                     <= recent_peers.len()
             );
