@@ -2294,6 +2294,12 @@ impl TransactionStatusSender {
         token_balances: TransactionTokenBalancesSet,
         transaction_indexes: Vec<usize>,
     ) {
+        if slot % 100 == 0 {
+            info!(
+                "send transaction status at slot: {slot} transaction indexes vec len: {}",
+                transaction_indexes.len()
+            );
+        }
         if let Err(e) = self
             .sender
             .send(TransactionStatusMessage::Batch(TransactionStatusBatch {
@@ -2305,10 +2311,9 @@ impl TransactionStatusSender {
                 transaction_indexes,
             }))
         {
-            trace!(
+            error!(
                 "Slot {} transaction_status send batch failed: {:?}",
-                slot,
-                e
+                slot, e
             );
         }
     }

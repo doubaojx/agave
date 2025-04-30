@@ -50,6 +50,9 @@ impl TransactionNotifier for TransactionNotifierImpl {
             if !plugin.transaction_notifications_enabled() {
                 continue;
             }
+            if slot % 100 == 0 && index % 100 == 0 {
+                info!("agave notify transaction at slot: {slot} at index: {index}");
+            }
             match plugin.notify_transaction(
                 ReplicaTransactionInfoVersions::V0_0_2(&transaction_log_info),
                 slot,
