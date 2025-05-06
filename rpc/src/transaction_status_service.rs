@@ -50,7 +50,6 @@ impl TransactionStatusService {
             .name("solTxStatusWrtr".to_string())
             .spawn(move || {
                 info!("TransactionStatusService has started");
-                let mut log_vec = Vec::with_capacity(32);
                 loop {
                     if exit.load(Ordering::Relaxed) {
                         break;
@@ -64,7 +63,6 @@ impl TransactionStatusService {
                             break;
                         }
                         Err(RecvTimeoutError::Timeout) => {
-                            error!("transaction_status_service receive transaction timeout!");
                             continue;
                         }
                     };
@@ -103,10 +101,8 @@ impl TransactionStatusService {
                         }
                     );
 
-                    log_vec.push(write_ts_batch_us);
-                    if log_vec.len() == 32 {
-                        info!("transaction_status_service measures: {log_vec:?}");
-                        log_vec.clear();
+                    if write_ts_batch_us > 400 {
+                        info!("transaction_status_service write_transaction_status_batch execute time: {write_ts_batch_us}");
                     }
                 }
                 info!("TransactionStatusService has stopped");
@@ -212,13 +208,20 @@ impl TransactionStatusService {
                         if slot % 100 == 0 && transaction_index % 100 == 0 {
                             info!("transaction_status_service receive transaction status at slot: {slot} transaction indexes len: {tx_indexes_len} transactions len: {txs_len}");
                         }
-                        transaction_notifier.notify_transaction(
-                            slot,
-                            transaction_index,
-                            transaction.signature(),
-                            &transaction_status_meta,
-                            &transaction,
-                        );
+                        let (_, tx_notifier_us) = measure_us!(transaction_notifier
+                            .notify_transaction(
+                                slot,
+                                transaction_index,
+                                transaction.signature(),
+                                &transaction_status_meta,
+                                &transaction,
+                            ));
+                        if tx_notifier_us > 200 {
+                            info!(
+                                "write_transaction_status_batch tx notifier execute time: {:?}",
+                                (slot, transaction_index, tx_notifier_us)
+                            );
+                        }
                     }
 
                     if !(enable_extended_tx_metadata_storage || transaction_notifier.is_some()) {
@@ -226,8 +229,7 @@ impl TransactionStatusService {
                         transaction_status_meta.inner_instructions.take();
                         transaction_status_meta.return_data.take();
                     }
-
-                    if enable_rpc_transaction_history {
+                    let (_, write_th_us) = measure_us!(if enable_rpc_transaction_history {
                         if let Some(memos) = extract_and_fmt_memos(transaction.message()) {
                             blockstore.add_transaction_memos_to_batch(
                                 transaction.signature(),
@@ -252,6 +254,12 @@ impl TransactionStatusService {
                             transaction_index,
                             &mut status_and_memos_batch,
                         )?;
+                    });
+                    if write_th_us > 200 {
+                        info!(
+                            "write_transaction_status_batch write tx history execute time: {:?}",
+                            (slot, transaction_index, write_th_us)
+                        );
                     }
 
                     if slot % 100 == 0 && transaction_index % 100 == 0 {
@@ -259,8 +267,14 @@ impl TransactionStatusService {
                     }
                 }
 
-                if enable_rpc_transaction_history {
+                let (_, write_memos_batch_us) = measure_us!(if enable_rpc_transaction_history {
                     blockstore.write_batch(status_and_memos_batch)?;
+                });
+                if write_memos_batch_us > 200 {
+                    info!(
+                        "write_transaction_status_batch write memos execute time: {:?}",
+                        (slot, write_memos_batch_us)
+                    );
                 }
             }
             TransactionStatusMessage::Freeze(slot) => {
