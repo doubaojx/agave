@@ -101,7 +101,7 @@ impl TransactionStatusService {
                         }
                     );
 
-                    if write_ts_batch_us > 400 {
+                    if write_ts_batch_us > 1000 {
                         info!("transaction_status_service write_transaction_status_batch execute time: {write_ts_batch_us}");
                     }
                 }
@@ -132,8 +132,8 @@ impl TransactionStatusService {
                 token_balances,
                 transaction_indexes,
             }) => {
-                let txs_len = transactions.len();
-                let tx_indexes_len = transaction_indexes.len();
+                // let txs_len = transactions.len();
+                // let tx_indexes_len = transaction_indexes.len();
 
                 let mut status_and_memos_batch = blockstore.get_write_batch()?;
 
@@ -205,9 +205,9 @@ impl TransactionStatusService {
                     };
 
                     if let Some(transaction_notifier) = transaction_notifier.as_ref() {
-                        if slot % 100 == 0 && transaction_index % 100 == 0 {
-                            info!("transaction_status_service receive transaction status at slot: {slot} transaction indexes len: {tx_indexes_len} transactions len: {txs_len}");
-                        }
+                        // if slot % 100 == 0 && transaction_index % 100 == 0 {
+                        //     info!("transaction_status_service receive transaction status at slot: {slot} transaction indexes len: {tx_indexes_len} transactions len: {txs_len}");
+                        // }
                         let (_, tx_notifier_us) = measure_us!(transaction_notifier
                             .notify_transaction(
                                 slot,
@@ -216,7 +216,7 @@ impl TransactionStatusService {
                                 &transaction_status_meta,
                                 &transaction,
                             ));
-                        if tx_notifier_us > 200 {
+                        if tx_notifier_us > 500 {
                             info!(
                                 "write_transaction_status_batch tx notifier execute time: {:?}",
                                 (slot, transaction_index, tx_notifier_us)
@@ -255,22 +255,22 @@ impl TransactionStatusService {
                             &mut status_and_memos_batch,
                         )?;
                     });
-                    if write_th_us > 200 {
+                    if write_th_us > 500 {
                         info!(
                             "write_transaction_status_batch write tx history execute time: {:?}",
                             (slot, transaction_index, write_th_us)
                         );
                     }
 
-                    if slot % 100 == 0 && transaction_index % 100 == 0 {
-                        info!("transaction_status_service processed transaction status at slot: {slot} transaction indexes len: {tx_indexes_len} transactions len: {txs_len}");
-                    }
+                    // if slot % 100 == 0 && transaction_index % 100 == 0 {
+                    //     info!("transaction_status_service processed transaction status at slot: {slot} transaction indexes len: {tx_indexes_len} transactions len: {txs_len}");
+                    // }
                 }
 
                 let (_, write_memos_batch_us) = measure_us!(if enable_rpc_transaction_history {
                     blockstore.write_batch(status_and_memos_batch)?;
                 });
-                if write_memos_batch_us > 200 {
+                if write_memos_batch_us > 500 {
                     info!(
                         "write_transaction_status_batch write memos execute time: {:?}",
                         (slot, write_memos_batch_us)
