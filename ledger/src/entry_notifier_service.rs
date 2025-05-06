@@ -61,6 +61,9 @@ impl EntryNotifierService {
             entry,
             starting_transaction_index,
         } = entry_notification_receiver.recv_timeout(Duration::from_secs(1))?;
+        if slot % 100 == 0 {
+            info!("agave notify entry at slot: {slot} entry index: {index}");
+        }
         entry_notifier.notify_entry(slot, index, &entry, starting_transaction_index);
         Ok(())
     }

@@ -6,6 +6,7 @@ use {
         blockstore::{Blockstore, BlockstoreError},
         blockstore_processor::{TransactionStatusBatch, TransactionStatusMessage},
     },
+    solana_measure::measure_us,
     solana_svm::transaction_commit_result::CommittedTransaction,
     solana_transaction_status::{
         extract_and_fmt_memos, map_inner_instructions, Reward, TransactionStatusMeta,
@@ -49,6 +50,7 @@ impl TransactionStatusService {
             .name("solTxStatusWrtr".to_string())
             .spawn(move || {
                 info!("TransactionStatusService has started");
+                let mut log_vec = Vec::with_capacity(32);
                 loop {
                     if exit.load(Ordering::Relaxed) {
                         break;
@@ -62,24 +64,49 @@ impl TransactionStatusService {
                             break;
                         }
                         Err(RecvTimeoutError::Timeout) => {
+                            error!("transaction_status_service receive transaction timeout!");
                             continue;
                         }
                     };
 
-                    match Self::write_transaction_status_batch(
-                        message,
-                        &max_complete_transaction_status_slot,
-                        enable_rpc_transaction_history,
-                        transaction_notifier.clone(),
-                        &blockstore,
-                        enable_extended_tx_metadata_storage,
-                    ) {
-                        Ok(_) => {}
-                        Err(err) => {
-                            error!("TransactionStatusService stopping due to error: {err}");
-                            exit.store(true, Ordering::Relaxed);
-                            break;
+                    if let TransactionStatusMessage::Batch(TransactionStatusBatch {
+                        slot,
+                        transactions,
+                        transaction_indexes,
+                        ..
+                    }) = &message
+                    {
+                        if slot % 100 == 0 {
+                            info!(
+                                "received transaction status at slot: {slot} transaction indexes len: {} transactions len: {}",
+                                transaction_indexes.len(),
+                                transactions.len(),
+                            );
                         }
+                    }
+
+                    let (_, write_ts_batch_us) = measure_us!(
+                        match Self::write_transaction_status_batch(
+                            message,
+                            &max_complete_transaction_status_slot,
+                            enable_rpc_transaction_history,
+                            transaction_notifier.clone(),
+                            &blockstore,
+                            enable_extended_tx_metadata_storage,
+                        ) {
+                            Ok(_) => {}
+                            Err(err) => {
+                                error!("TransactionStatusService stopping due to error: {err}");
+                                exit.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                        }
+                    );
+
+                    log_vec.push(write_ts_batch_us);
+                    if log_vec.len() == 32 {
+                        info!("transaction_status_service measures: {log_vec:?}");
+                        log_vec.clear();
                     }
                 }
                 info!("TransactionStatusService has stopped");
@@ -109,6 +136,9 @@ impl TransactionStatusService {
                 token_balances,
                 transaction_indexes,
             }) => {
+                let txs_len = transactions.len();
+                let tx_indexes_len = transaction_indexes.len();
+
                 let mut status_and_memos_batch = blockstore.get_write_batch()?;
 
                 for (
@@ -179,6 +209,9 @@ impl TransactionStatusService {
                     };
 
                     if let Some(transaction_notifier) = transaction_notifier.as_ref() {
+                        if slot % 100 == 0 && transaction_index % 100 == 0 {
+                            info!("transaction_status_service receive transaction status at slot: {slot} transaction indexes len: {tx_indexes_len} transactions len: {txs_len}");
+                        }
                         transaction_notifier.notify_transaction(
                             slot,
                             transaction_index,
@@ -219,6 +252,10 @@ impl TransactionStatusService {
                             transaction_index,
                             &mut status_and_memos_batch,
                         )?;
+                    }
+
+                    if slot % 100 == 0 && transaction_index % 100 == 0 {
+                        info!("transaction_status_service processed transaction status at slot: {slot} transaction indexes len: {tx_indexes_len} transactions len: {txs_len}");
                     }
                 }
 

@@ -1643,8 +1643,12 @@ fn confirm_slot_entries(
         .iter()
         .enumerate()
         .map(|(i, entry)| {
+            let num_txs = entry.transactions.len();
             if let Some(entry_notification_sender) = entry_notification_sender {
                 let entry_index = progress.num_entries.saturating_add(i);
+                if slot % 100 == 0 {
+                    info!("send entry at slot: {slot} entry index: {entry_index} txs num: {num_txs} entries num: {num_entries}");
+                }
                 if let Err(err) = entry_notification_sender.send(EntryNotification {
                     slot,
                     index: entry_index,
@@ -1657,7 +1661,6 @@ fn confirm_slot_entries(
                     );
                 }
             }
-            let num_txs = entry.transactions.len();
             let next_tx_starting_index = entry_tx_starting_index.saturating_add(num_txs);
             entry_tx_starting_indexes.push(entry_tx_starting_index);
             entry_tx_starting_index = next_tx_starting_index;
@@ -2296,8 +2299,9 @@ impl TransactionStatusSender {
     ) {
         if slot % 100 == 0 {
             info!(
-                "send transaction status at slot: {slot} transaction indexes vec len: {}",
-                transaction_indexes.len()
+                "send transaction status at slot: {slot} transaction indexes len: {} transactions len: {}",
+                transaction_indexes.len(),
+                transactions.len(),
             );
         }
         if let Err(e) = self
