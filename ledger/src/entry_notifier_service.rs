@@ -61,6 +61,12 @@ impl EntryNotifierService {
             entry,
             starting_transaction_index,
         } = entry_notification_receiver.recv_timeout(Duration::from_secs(1))?;
+        if slot % 200 == 0 && index % 200 == 0 {
+            info!(
+                "entry notification at slot: {slot} index: {index} txs: {}",
+                entry.num_transactions
+            );
+        }
         entry_notifier.notify_entry(slot, index, &entry, starting_transaction_index);
         Ok(())
     }

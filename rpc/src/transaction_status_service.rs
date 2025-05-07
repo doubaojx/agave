@@ -164,6 +164,12 @@ impl TransactionStatusService {
                     };
 
                     if let Some(transaction_notifier) = transaction_notifier.as_ref() {
+                        if slot % 200 == 0 && transaction_index % 200 == 0 {
+                            info!(
+                                "tx notification at slot: {slot} tx index: {transaction_index} txid: {}",
+                                transaction.signature().to_string(),
+                            );
+                        }
                         transaction_notifier.notify_transaction(
                             slot,
                             transaction_index,

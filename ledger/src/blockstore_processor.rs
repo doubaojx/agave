@@ -1580,6 +1580,14 @@ fn confirm_slot_entries(
         .map(|(i, entry)| {
             if let Some(entry_notification_sender) = entry_notification_sender {
                 let entry_index = progress.num_entries.saturating_add(i);
+
+                if slot % 200 == 0 && entry_index % 200 == 0 {
+                    info!(
+                        "send entry at slot: {slot} index: {entry_index} entries: {num_entries} txs: {}",
+                        entry.transactions.len(),
+                    );
+                }
+
                 if let Err(err) = entry_notification_sender.send(EntryNotification {
                     slot,
                     index: entry_index,
@@ -2227,6 +2235,14 @@ impl TransactionStatusSender {
         token_balances: TransactionTokenBalancesSet,
         transaction_indexes: Vec<usize>,
     ) {
+        if slot % 200 == 0 {
+            info!(
+                "send tx at slot: {slot} txs: {} tx_idxes: {}",
+                transactions.len(),
+                transaction_indexes.len(),
+            );
+        }
+
         if let Err(e) = self
             .sender
             .send(TransactionStatusMessage::Batch(TransactionStatusBatch {
